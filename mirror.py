@@ -61,8 +61,17 @@ def files_of(v):
 
 
 def is_mp3(head):
-    return head[:3] == b'ID3' or (len(head) > 1 and head[0] == 0xFF
-                                  and head[1] & 0xE0 == 0xE0)
+    """Whether [head], a file's first bytes, is audio rather than an
+    error page: an ID3 tag, or a frame sync within them. Some hosts'
+    files have a stray byte or two before their first frame (EveryAyah's
+    Hudhaify 002167 starts with a 0x00), which every decoder skips."""
+    head = head[:4096]
+    if head[:3] == b'ID3':
+        return True
+    if head.lstrip()[:1] == b'<':
+        return False
+    return any(head[i] == 0xFF and head[i + 1] & 0xE0 == 0xE0
+               for i in range(len(head) - 1))
 
 
 def fetch_all(pairs, out, parallel):
@@ -96,7 +105,7 @@ def fetch_all(pairs, out, parallel):
             ok = part.exists() and part.stat().st_size > 0
             if ok:
                 with part.open('rb') as f:
-                    ok = is_mp3(f.read(4))
+                    ok = is_mp3(f.read(4096))
                 if not ok:
                     log(f'  {k}: not an mp3 ({u})')
             if ok:
