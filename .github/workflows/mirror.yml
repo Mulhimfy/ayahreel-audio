@@ -1,0 +1,57 @@
+name: mirror
+
+# Copies AyahReel's voices into this repository's releases (mirror.py).
+# Started by hand only. No secrets: the job's own token writes the
+# releases, and every file it copies is already public.
+on:
+  workflow_dispatch:
+    inputs:
+      voices:
+        description: 'Voice ids, comma-separated, or all'
+        required: true
+        default: all
+      mode:
+        description: 'voice = copy and check, check = read every file back'
+        required: true
+        default: voice
+        type: choice
+        options: [voice, check]
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      voices: ${{ steps.plan.outputs.voices }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          VOICES: ${{ inputs.voices }}
+        run: python3 mirror.py plan "$VOICES" >> "$GITHUB_OUTPUT"
+
+  mirror:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        voice: ${{ fromJSON(needs.plan.outputs.voices) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Room on the disk
+        if: inputs.mode == 'voice'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Mirror
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MODE: ${{ inputs.mode }}
+          VOICE: ${{ matrix.voice }}
+        run: python3 mirror.py "$MODE" "$VOICE"
