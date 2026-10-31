@@ -11,11 +11,11 @@ on:
         required: true
         default: all
       mode:
-        description: 'voice = copy and check, check = read every file back'
+        description: 'voice = copy and check, check = read every file back, text = the verse text'
         required: true
         default: voice
         type: choice
-        options: [voice, check]
+        options: [voice, check, text]
 
 permissions:
   contents: write
@@ -30,7 +30,9 @@ jobs:
       - id: plan
         env:
           VOICES: ${{ inputs.voices }}
-        run: python3 mirror.py plan "$VOICES" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${{ inputs.mode }}" = text ]; then echo 'voices=["-"]' >> "$GITHUB_OUTPUT"
+          else python3 mirror.py plan "$VOICES" >> "$GITHUB_OUTPUT"; fi
 
   mirror:
     needs: plan

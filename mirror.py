@@ -5,6 +5,7 @@ the copy against what was copied.
     python3 mirror.py plan all|<id>,<id>...   matrix for the workflow
     python3 mirror.py voice <id>              mirror one voice
     python3 mirror.py check <id>              read a mirrored voice back
+    python3 mirror.py text -                  mirror the verse text
 
 What a voice's release (tag `voice-<id>`) holds:
 
@@ -332,6 +333,43 @@ def check(vid, quick=False):
     log(f'  {vid}: {len(keys)} files read by range, all as their hosts sent')
 
 
+def text(_):
+    """The verse text the app fetches from quran.com, one release
+    (`text`) of one asset per edition: {surah: the host's answer}."""
+    out = WORK / 'text'
+    out.mkdir(parents=True, exist_ok=True)
+    counts = MANIFEST['counts']
+    names = []
+    for asset, urls in MANIFEST['text'].items():
+        body = {}
+        for key, url in sorted(urls.items()):
+            j = get_json(url)
+            rows = j.get('verses') if asset == 'uthmani.json' else j.get(
+                'translations')
+            if not isinstance(rows, list) or len(rows) != counts[int(key) - 1]:
+                raise RuntimeError(f'{url}: {len(rows or [])} verses')
+            body[key] = j
+        (out / asset).write_text(json.dumps(body, ensure_ascii=False,
+                                            separators=(',', ':')))
+        names.append(asset)
+        log(f'  {asset}: 114 surahs, {(out / asset).stat().st_size >> 10} KiB')
+    tag = 'text'
+    if gh('release', 'view', tag, '--repo', REPO, check=False).returncode:
+        gh('release', 'create', tag, '--repo', REPO, '--title', 'verse text',
+           '--notes', 'The verse text AyahReel shows, as quran.com serves it '
+           '(the QPC Uthmani Arabic and each offered translation).')
+    gh('release', 'upload', tag, *[str(out / n) for n in names],
+       '--repo', REPO, '--clobber')
+    for n in names:
+        req = urllib.request.Request(
+            f'https://github.com/{REPO}/releases/download/{tag}/{n}',
+            headers={'User-Agent': UA})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            if r.read() != (out / n).read_bytes():
+                raise RuntimeError(f'{n}: read back differs')
+    log(f'text: {len(names)} editions up and read back')
+
+
 def plan(arg):
     ids = [v['id'] for v in MANIFEST['voices']]
     if arg != 'all':
@@ -350,4 +388,4 @@ def plan(arg):
 
 if __name__ == '__main__':
     cmd, arg = sys.argv[1], sys.argv[2]
-    {'plan': plan, 'voice': mirror, 'check': check}[cmd](arg)
+    {'plan': plan, 'voice': mirror, 'check': check, 'text': text}[cmd](arg)
