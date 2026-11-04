@@ -1,0 +1,66 @@
+name: mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      voices:
+        description: 'Voice ids, comma-separated, or all'
+        required: true
+        default: all
+      mode:
+        description: 'voice = copy and check, check = read every file back, text = the verse text'
+        required: true
+        default: voice
+        type: choice
+        options: [voice, check, text]
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      voices: ${{ steps.plan.outputs.voices }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Mulhimfy/ayahReel
+          ssh-key: ${{ secrets.APP_DEPLOY_KEY }}
+          persist-credentials: false
+          sparse-checkout: tool/audio_mirror
+      - id: plan
+        env:
+          VOICES: ${{ inputs.voices }}
+        run: |
+          if [ "${{ inputs.mode }}" = text ]; then echo 'voices=["-"]' >> "$GITHUB_OUTPUT"
+          else python3 tool/audio_mirror/mirror.py plan "$VOICES" >> "$GITHUB_OUTPUT"; fi
+
+  mirror:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        voice: ${{ fromJSON(needs.plan.outputs.voices) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Mulhimfy/ayahReel
+          ssh-key: ${{ secrets.APP_DEPLOY_KEY }}
+          persist-credentials: false
+          sparse-checkout: tool/audio_mirror
+      - name: Room on the disk
+        if: inputs.mode == 'voice'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Mirror
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MODE: ${{ inputs.mode }}
+          VOICE: ${{ matrix.voice }}
+        run: python3 tool/audio_mirror/mirror.py "$MODE" "$VOICE"
